@@ -14,9 +14,9 @@ const obsStorage = multer.diskStorage({
     cb(null, obsUploadDir);
   },
   filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    const uniqueSuffix = Date.now() + '_' + Math.round(Math.random() * 1e9);
     const ext = path.extname(file.originalname);
-    cb(null, `obsPhoto-${uniqueSuffix}${ext}`);
+    cb(null, `obsPhoto_${uniqueSuffix}${ext}`);
   },
 });
 
@@ -30,9 +30,9 @@ const avatarStorage = multer.diskStorage({
     cb(null, avatarUploadDir);
   },
   filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    const uniqueSuffix = Date.now() + '_' + Math.round(Math.random() * 1e9);
     const ext = path.extname(file.originalname);
-    cb(null, `avatar-${uniqueSuffix}${ext}`);
+    cb(null, `avatar_${uniqueSuffix}${ext}`);
   },
 });
 

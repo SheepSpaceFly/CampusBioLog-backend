@@ -295,16 +295,54 @@ exports.checkOpenId = async (req, res, next) => {
 
 exports.login = async (req, res, next) => {
   try {
-    const { username, password } = req.body;
+    const { openid, username, password } = req.body;
+
+    // ========== 微信用户登录（优先） ==========
+    if (openid) {
+      if (!openid) {
+        return res.status(400).json({ success: false, message: 'openid 不能为空' });
+      }
+
+      // 根据 openid 查找用户
+      const user = await userModel.getByOpenId(openid);
+      if (!user) {
+        return res.status(404).json({ success: false, message: '该微信用户不存在，请先注册' });
+      }
+
+      // 检查账号状态
+      if (user.status === 'banned') {
+        return res.status(403).json({ success: false, message: '账号已被封禁' });
+      }
+
+      // 更新最后登录时间
+      await userModel.updateLastLogin(user.user_id);
+
+      // 返回用户信息（不含敏感字段）
+      return res.json({ success: true, data: formatUser(user), message: '登录成功' });
+    }
+
+    // ========== 管理员（用户名+密码）登录 ==========
     if (!username || !password) {
       return res.status(400).json({ success: false, message: '用户名和密码不能为空' });
     }
+
     const user = await userModel.getByUsername(username);
-    if (!user) return res.status(401).json({ success: false, message: '用户名或密码错误' });
+    if (!user) {
+      return res.status(401).json({ success: false, message: '用户名或密码错误' });
+    }
+
     const match = await bcrypt.compare(password, user.password_hash);
-    if (!match) return res.status(401).json({ success: false, message: '用户名或密码错误' });
-    if (user.status === 'banned') return res.status(403).json({ success: false, message: '账号已被封禁' });
+    if (!match) {
+      return res.status(401).json({ success: false, message: '用户名或密码错误' });
+    }
+
+    if (user.status === 'banned') {
+      return res.status(403).json({ success: false, message: '账号已被封禁' });
+    }
+
     await userModel.updateLastLogin(user.user_id);
     res.json({ success: true, data: formatUser(user), message: '登录成功' });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 };
