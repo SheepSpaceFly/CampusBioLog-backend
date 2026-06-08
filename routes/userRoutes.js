@@ -2,6 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const userController = require('../controllers/userController');
+const { uploadAvatar } = require('../middlewares/photoUpload');
 
 // ==================== 固定路径（优先级高） ====================
 
@@ -24,10 +25,10 @@ router.get('/check-email', userController.checkEmail);
 router.get('/check-openid', userController.checkOpenId);
 
 // POST /api/users/wechat
-router.post('/wechat', userController.createWechatUser);
+router.post('/wechat', uploadAvatar.single('avatar'), userController.createWechatUser);
 
 // POST /api/users/admin
-router.post('/admin', userController.createAdmin);
+router.post('/admin', uploadAvatar.single('avatar'), userController.createAdmin);
 
 // POST /api/users/login
 router.post('/login', userController.login);

@@ -6,10 +6,30 @@ const fs = require('fs').promises;
 const path = require('path');
 const sharp = require('sharp');
 
-// 默认头像路径（请确保该文件存在于静态可访问目录）
-const DEFAULT_AVATAR = '/uploads/avatar/default_avatar.png';
+// 默认头像路径（必须是已压缩的小图）
+const DEFAULT_AVATAR = '/uploads/avatar/default_avatar.jpg';
 
-// 辅助：物理删除文件（类似 observationController.deleteFile）
+// 压缩头像：将上传的图片压缩为宽度500px、质量70%的JPEG，并覆盖原文件
+async function compressAvatar(filePath, originalFilename) {
+  const dir = path.dirname(filePath);
+  const ext = path.extname(originalFilename);
+  // 新文件名：原文件名去掉扩展名 + _compressed.jpg
+  const baseName = path.basename(originalFilename, ext);
+  const compressedName = `${baseName}_compressed.jpg`;
+  const compressedPath = path.join(dir, compressedName);
+
+  await sharp(filePath)
+    .resize(500, null, { withoutEnlargement: true }) // 宽度500，高度自适应，不放大
+    .jpeg({ quality: 70 })
+    .toFile(compressedPath);
+
+  // 删除原始文件
+  await fs.unlink(filePath);
+  // 返回压缩后的相对路径（相对于项目根目录）
+  return `/uploads/avatar/${compressedName}`;
+}
+
+// 物理删除文件（相对路径）
 async function deleteFile(relativePath) {
   if (!relativePath || relativePath === DEFAULT_AVATAR) return;
   const fullPath = path.join(__dirname, '../../', relativePath);
@@ -20,10 +40,7 @@ async function deleteFile(relativePath) {
   }
 }
 
-// 可选：生成压缩后的头像（参照 generatePreview，可省略直接使用原图）
-// 如果你需要压缩头像，可以保留；这里为了简单，直接使用 multer 保存的文件
-
-// ==================== 获取用户信息（原样保留） ====================
+// ==================== 获取用户信息 ====================
 exports.getUserById = async (req, res, next) => {
   try {
     const userId = parseInt(req.params.id);
@@ -44,8 +61,8 @@ exports.getUserByOpenId = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-// ==================== 创建用户（支持头像文件上传） ====================
-/** 
+// ==================== 创建用户（支持头像压缩） ====================
+/**
  * POST /api/users/wechat
  * Content-Type: multipart/form-data
  * 字段: openid (必填), nickname (可选), avatar (文件, 可选)
@@ -58,22 +75,25 @@ exports.createWechatUser = async (req, res, next) => {
     const exists = await userModel.isOpenIdExists(openid);
     if (exists) return res.status(409).json({ success: false, message: '该微信用户已存在' });
 
-    // 处理头像：若有上传文件则保存，否则使用默认
     let avatarUrl = DEFAULT_AVATAR;
     if (req.file) {
-      avatarUrl = `/uploads/avatar/${req.file.filename}`;
+      // 压缩头像并获取最终路径
+      const originalPath = req.file.path; // multer 存储的完整路径
+      avatarUrl = await compressAvatar(originalPath, req.file.filename);
     }
 
     const newUser = await userModel.createWechatUser(openid, nickname || null, avatarUrl);
     res.status(201).json({ success: true, data: formatUser(newUser) });
   } catch (err) {
-    // 若出错且已上传文件，则删除
-    if (req.file) await deleteFile(`/uploads/avatar/${req.file.filename}`).catch(() => {});
+    // 若出错且已上传文件，尝试删除（压缩函数已可能删除原文件，这里再清理一下残留）
+    if (req.file) {
+      await deleteFile(`/uploads/avatar/${req.file.filename}`).catch(() => {});
+    }
     next(err);
   }
 };
 
-/** 
+/**
  * POST /api/users/admin
  * Content-Type: multipart/form-data
  * 字段: username, email, password, role (可选, 默认 admin), avatar (文件, 可选)
@@ -94,23 +114,26 @@ exports.createAdmin = async (req, res, next) => {
     const passwordHash = await bcrypt.hash(password, 10);
     let avatarUrl = DEFAULT_AVATAR;
     if (req.file) {
-      avatarUrl = `/uploads/avatar/${req.file.filename}`;
+      const originalPath = req.file.path;
+      avatarUrl = await compressAvatar(originalPath, req.file.filename);
     }
 
     const newAdmin = await userModel.createAdmin(username, email, passwordHash, role || 'admin', avatarUrl);
     res.status(201).json({ success: true, data: formatUser(newAdmin) });
   } catch (err) {
-    if (req.file) await deleteFile(`/uploads/avatar/${req.file.filename}`).catch(() => {});
+    if (req.file) {
+      await deleteFile(`/uploads/avatar/${req.file.filename}`).catch(() => {});
+    }
     next(err);
   }
 };
 
-// ==================== 更新用户资料（仅昵称、用户名、邮箱等，不含头像） ====================
+// ==================== 更新用户资料（不含头像） ====================
 exports.updateWechatProfile = async (req, res, next) => {
   try {
     const userId = parseInt(req.params.id);
     if (isNaN(userId)) return res.status(400).json({ success: false, message: '用户ID不合法' });
-    const { nickname, avatarUrl } = req.body;
+    const { nickname, avatarUrl } = req.body; // avatarUrl 可以是前端直接传的 URL，一般不用
     if (nickname === undefined && avatarUrl === undefined) {
       return res.status(400).json({ success: false, message: '至少需要提供昵称或头像' });
     }
@@ -147,18 +170,16 @@ exports.updateAdminProfile = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-// ==================== 单独上传/更新头像（只处理文件） ====================
-/** 
+// ==================== 单独更新头像（压缩+删除旧文件） ====================
+/**
  * POST /api/users/:id/avatar
  * Content-Type: multipart/form-data, 字段名 avatar
- * 更新后旧头像文件会被删除（若不是默认头像）
  */
 exports.updateAvatar = async (req, res, next) => {
   try {
     const userId = parseInt(req.params.id);
     if (isNaN(userId)) return res.status(400).json({ success: false, message: '用户ID不合法' });
 
-    // 获取当前用户信息
     const user = await userModel.getById(userId);
     if (!user) return res.status(404).json({ success: false, message: '用户不存在' });
 
@@ -166,13 +187,14 @@ exports.updateAvatar = async (req, res, next) => {
       return res.status(400).json({ success: false, message: '请选择图片文件' });
     }
 
-    const newAvatarRelative = `/uploads/avatar/${req.file.filename}`;
+    // 压缩新头像
+    const originalPath = req.file.path;
+    const newAvatarRelative = await compressAvatar(originalPath, req.file.filename);
 
-    // 更新数据库（更新 avatar_url）
-    // 注意：对于微信用户和管理员，都使用同一个更新方法（只更新头像）
+    // 更新数据库
     await userModel.updateWechatProfile(userId, user.nickname, newAvatarRelative);
 
-    // 删除旧头像（如果存在且不是默认头像）
+    // 删除旧头像（如果不是默认头像）
     if (user.avatar_url && user.avatar_url !== DEFAULT_AVATAR) {
       await deleteFile(user.avatar_url);
     }
@@ -180,12 +202,14 @@ exports.updateAvatar = async (req, res, next) => {
     const updatedUser = await userModel.getById(userId);
     res.json({ success: true, data: formatUser(updatedUser) });
   } catch (err) {
-    if (req.file) await deleteFile(`/uploads/avatar/${req.file.filename}`).catch(() => {});
+    if (req.file) {
+      await deleteFile(`/uploads/avatar/${req.file.filename}`).catch(() => {});
+    }
     next(err);
   }
 };
 
-// ==================== 状态、角色、列表等（原样保留） ====================
+// ==================== 状态、角色、列表等（原样） ====================
 exports.updateUserStatus = async (req, res, next) => {
   try {
     const userId = parseInt(req.params.id);
@@ -241,7 +265,7 @@ exports.deleteUser = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-// ==================== 唯一性检查、登录（原样保留） ====================
+// ==================== 唯一性检查、登录（原样） ====================
 exports.checkUsername = async (req, res, next) => {
   try {
     const { username } = req.query;
