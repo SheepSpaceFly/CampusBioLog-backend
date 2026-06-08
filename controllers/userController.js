@@ -6,16 +6,16 @@ const fs = require('fs').promises;
 const path = require('path');
 const sharp = require('sharp');
 
-// 默认头像路径（必须是已压缩的小图）
+// 默认头像路径
 const DEFAULT_AVATAR = '/uploads/avatar/default_avatar.jpg';
 
 // 压缩头像：将上传的图片压缩为宽度500px、质量70%的JPEG，并覆盖原文件
 async function compressAvatar(filePath, originalFilename) {
   const dir = path.dirname(filePath);
   const ext = path.extname(originalFilename);
-  // 新文件名：原文件名去掉扩展名 + _compressed.jpg
+  // 新文件名：原文件名去掉扩展名 + .jpg
   const baseName = path.basename(originalFilename, ext);
-  const compressedName = `${baseName}_compressed.jpg`;
+  const compressedName = `${baseName}.jpg`;
   const compressedPath = path.join(dir, compressedName);
 
   await sharp(filePath)

@@ -21,7 +21,7 @@ const commentRoutes = require('./routes/commentRoutes');
 const postLikeRoutes = require('./routes/postLikeRoutes');
 const commentLikeRoutes = require('./routes/commentLikeRoutes');
 
-
+app.use('/uploads', express.static('./uploads'));
 app.use('/api/users', userRoutes);
 app.use('/api/locations', locationRoutes);
 app.use('/api/categories', categoryRoutes);

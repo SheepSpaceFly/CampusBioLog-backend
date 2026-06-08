@@ -53,7 +53,7 @@ const createWechatUser = async (openid, nickname = null, avatarUrl = null) => {
      VALUES (?, ?, ?, 'observer', 'active')`,
     [openid, nickname, avatarUrl]
   );
-  return { user_id: result.insertId, nickname, avatarUrl, role: 'observer' };
+  return { user_id: result.insertId, nickname, avatar_url: avatarUrl, role: 'observer' };
 };
 
 /**

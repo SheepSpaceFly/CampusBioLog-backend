@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 
 //上传观察图片
-const obsUploadDir = path.join(__dirname, '../../uploads/observation_photos');
+const obsUploadDir = path.join(__dirname, '../uploads/observation_photos');
 if (!fs.existsSync(obsUploadDir)) {
   fs.mkdirSync(obsUploadDir, { recursive: true });
 }
@@ -16,11 +16,11 @@ const obsStorage = multer.diskStorage({
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
     const ext = path.extname(file.originalname);
-    cb(null, `photo-${uniqueSuffix}${ext}`);
+    cb(null, `obsPhoto-${uniqueSuffix}${ext}`);
   },
 });
 
-const avatarUploadDir = path.join(__dirname, '../../uploads/avatar');
+const avatarUploadDir = path.join(__dirname, '../uploads/avatar');
 if (!fs.existsSync(avatarUploadDir)) {
   fs.mkdirSync(avatarUploadDir, { recursive: true });
 }
@@ -32,7 +32,7 @@ const avatarStorage = multer.diskStorage({
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
     const ext = path.extname(file.originalname);
-    cb(null, `photo-${uniqueSuffix}${ext}`);
+    cb(null, `avatar-${uniqueSuffix}${ext}`);
   },
 });
 
