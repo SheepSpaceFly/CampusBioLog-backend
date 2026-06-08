@@ -62,18 +62,20 @@ const createWechatUser = async (openid, nickname = null, avatarUrl = null) => {
  * @param {string} email - 邮箱
  * @param {string} passwordHash - 加密后的密码
  * @param {string} [role='admin'] - 角色，admin 或 reviewer
+ * @param {string} [avatarUrl=null] - 头像地址
  */
-const createAdmin = async (username, email, passwordHash, role = 'admin') => {
+const createAdmin = async (username, email, passwordHash, role = 'admin', avatarUrl = null) => {
   const [result] = await pool.query(
-    `INSERT INTO user (username, email, password_hash, role, status)
-     VALUES (?, ?, ?, ?, 'active')`,
-    [username, email, passwordHash, role]
+    `INSERT INTO user (username, email, password_hash, role, status, avatar_url)
+     VALUES (?, ?, ?, ?, 'active', ?)`,
+    [username, email, passwordHash, role, avatarUrl]
   );
   return {
     user_id: result.insertId,
     username,
     email,
     role,
+    avatar_url: avatarUrl,
   };
 };
 

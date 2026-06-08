@@ -1,7 +1,11 @@
 // src/controllers/userController.js
 const userModel = require('../models/userModel');
 const { formatUser } = require('../utils/format');
-const bcrypt = require('bcrypt'); 
+const bcrypt = require('bcrypt');
+const fs = require('fs').promises;
+const path = require('path');
+
+const DEFAULT_AVATAR = '/uploads/avatar/default_avatar.png';
 
 // ==================== 获取用户信息 ====================
 
@@ -48,12 +52,13 @@ exports.createWechatUser = async (req, res, next) => {
     if (!openid) {
       return res.status(400).json({ success: false, message: '缺少 openid' });
     }
-    // 检查是否已存在
     const exists = await userModel.isOpenIdExists(openid);
     if (exists) {
       return res.status(409).json({ success: false, message: '该微信用户已存在' });
     }
-    const newUser = await userModel.createWechatUser(openid, nickname, avatarUrl);
+    // 若未提供头像 URL 或为空，使用默认头像
+    const finalAvatar = avatarUrl && avatarUrl.trim() !== '' ? avatarUrl : DEFAULT_AVATAR;
+    const newUser = await userModel.createWechatUser(openid, nickname, finalAvatar);
     res.status(201).json({ success: true, data: formatUser(newUser) });
   } catch (err) {
     next(err);
@@ -63,20 +68,19 @@ exports.createWechatUser = async (req, res, next) => {
 /** POST /api/users/admin - 创建管理员账号（由管理员操作） */
 exports.createAdmin = async (req, res, next) => {
   try {
-    const { username, email, password, role } = req.body;
+    const { username, email, password, role, avatarUrl } = req.body;
     if (!username || !email || !password) {
       return res.status(400).json({ success: false, message: '用户名、邮箱和密码不能为空' });
     }
-    // 检查唯一性
     if (await userModel.isUsernameTaken(username)) {
       return res.status(409).json({ success: false, message: '用户名已存在' });
     }
     if (await userModel.isEmailTaken(email)) {
       return res.status(409).json({ success: false, message: '邮箱已存在' });
     }
-    // 实际项目中要用 bcrypt 加密
     const passwordHash = await bcrypt.hash(password, 10);
-    const newAdmin = await userModel.createAdmin(username, email, passwordHash, role || 'admin');
+    const finalAvatar = avatarUrl && avatarUrl.trim() !== '' ? avatarUrl : DEFAULT_AVATAR;
+    const newAdmin = await userModel.createAdmin(username, email, passwordHash, role || 'admin', finalAvatar);
     res.status(201).json({ success: true, data: formatUser(newAdmin) });
   } catch (err) {
     next(err);
@@ -135,6 +139,55 @@ exports.updateAdminProfile = async (req, res, next) => {
     const updated = await userModel.getById(userId);
     res.json({ success: true, data: formatUser(updated) });
   } catch (err) {
+    next(err);
+  }
+};
+
+// ==================== 头像上传与更新（新增） ====================
+/** POST /api/users/:id/avatar - 上传/更新头像（multipart/form-data，字段名 avatar） */
+exports.updateAvatar = async (req, res, next) => {
+  try {
+    const userId = parseInt(req.params.id);
+    if (isNaN(userId)) {
+      return res.status(400).json({ success: false, message: '用户ID不合法' });
+    }
+
+    // 获取当前用户信息
+    const user = await userModel.getById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: '用户不存在' });
+    }
+
+    // 权限：只允许用户自己修改头像（或管理员，这里简化，由上层路由中间件决定）
+    const { userId: reqUserId } = req.body; // 可从 JWT 或 body 中获取请求者ID
+    if (parseInt(reqUserId) !== userId) {
+      return res.status(403).json({ success: false, message: '无权修改他人头像' });
+    }
+
+    // 检查是否有文件上传
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: '请选择图片文件' });
+    }
+
+    // 新文件的相对路径
+    const newAvatarRelative = `/uploads/avatar/${req.file.filename}`;
+
+    // 更新数据库中的 avatar_url
+    await userModel.updateWechatProfile(userId, user.nickname, newAvatarRelative);
+
+    // 删除旧头像（如果不是默认头像）
+    if (user.avatar_url && user.avatar_url !== DEFAULT_AVATAR) {
+      await deleteFile(user.avatar_url);
+    }
+
+    // 返回更新后的用户信息
+    const updatedUser = await userModel.getById(userId);
+    res.json({ success: true, data: formatUser(updatedUser) });
+  } catch (err) {
+    // 出错时尝试删除已上传的文件
+    if (req.file) {
+      await deleteFile(`/uploads/avatar/${req.file.filename}`).catch(() => {});
+    }
     next(err);
   }
 };
@@ -209,6 +262,9 @@ exports.deleteUser = async (req, res, next) => {
     const user = await userModel.getById(userId);
     if (!user) {
       return res.status(404).json({ success: false, message: '用户不存在' });
+    }
+    if (user.avatar_url && user.avatar_url !== DEFAULT_AVATAR) {
+      await deleteFile(user.avatar_url);
     }
     await userModel.deleteUser(userId);
     res.json({ success: true, message: '用户已删除' });

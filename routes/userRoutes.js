@@ -32,6 +32,9 @@ router.post('/admin', userController.createAdmin);
 // POST /api/users/login
 router.post('/login', userController.login);
 
+// 注意：前端需使用 multipart/form-data，字段名为 "avatar"
+router.post('/:id/avatar', uploadAvatar.single('avatar'), userController.updateAvatar);
+
 // ==================== 带 :id 的动态路径（放最后） ====================
 
 // PUT /api/users/:id/profile
