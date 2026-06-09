@@ -51,14 +51,21 @@ exports.getUserById = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-exports.getUserByOpenId = async (req, res, next) => {
+exports.getUserByCode = async (req, res, next) => {
   try {
-    const { openid } = req.query;
-    if (!openid) return res.status(400).json({ success: false, message: '缺少 openid 参数' });
-    const user = await userModel.getByOpenId(openid);
-    if (!user) return res.status(404).json({ success: false, message: '用户不存在' });
+    const realOpenid = req.openid; // 由 wechatCodeMiddleware 注入
+    if (!realOpenid) {
+      return res.status(400).json({ success: false, message: '无法获取微信身份' });
+    }
+    const user = await userModel.getByOpenId(realOpenid);
+    if (!user) {
+      return res.status(404).json({ success: false, message: '该微信用户尚未注册' });
+    }
+    // 注意：不调用 updateLastLogin，保持只读
     res.json({ success: true, data: formatUser(user) });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 };
 
 // ==================== 创建用户（支持头像压缩） ====================
@@ -69,29 +76,34 @@ exports.getUserByOpenId = async (req, res, next) => {
  */
 exports.createWechatUser = async (req, res, next) => {
   try {
-    const { openid, nickname } = req.body;
-    if (!openid) return res.status(400).json({ success: false, message: '缺少 openid' });
+    // 从中间件获取真实 openid
+    const realOpenid = req.openid;
+    if (!realOpenid) {
+      return res.status(400).json({ success: false, message: '缺少有效的微信身份凭证' });
+    }
 
-    const exists = await userModel.isOpenIdExists(openid);
-    if (exists) return res.status(409).json({ success: false, message: '该微信用户已存在' });
+    const { nickname } = req.body;
+
+    // 检查是否已存在
+    const exists = await userModel.isOpenIdExists(realOpenid);
+    if (exists) {
+      return res.status(409).json({ success: false, message: '该微信用户已存在' });
+    }
 
     let avatarUrl = DEFAULT_AVATAR;
     if (req.file) {
-      // 压缩头像并获取最终路径
-      const originalPath = req.file.path; // multer 存储的完整路径
+      const originalPath = req.file.path;
       avatarUrl = await compressAvatar(originalPath, req.file.filename);
     }
 
-    const newUser = await userModel.createWechatUser(openid, nickname || null, avatarUrl);
+    const newUser = await userModel.createWechatUser(realOpenid, nickname || null, avatarUrl);
     res.status(201).json({ success: true, data: formatUser(newUser) });
   } catch (err) {
-    // 若出错且已上传文件，尝试删除（压缩函数已可能删除原文件，这里再清理一下残留）
-    if (req.file) {
-      await deleteFile(`/uploads/avatar/${req.file.filename}`).catch(() => {});
-    }
+    if (req.file) await deleteFile(`/uploads/avatar/${req.file.filename}`).catch(() => {});
     next(err);
   }
 };
+
 
 /**
  * POST /api/users/admin
@@ -293,53 +305,45 @@ exports.checkOpenId = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-exports.login = async (req, res, next) => {
+// ==================== 微信用户登录（使用 code ） ====================
+exports.wechatLogin = async (req, res, next) => {
   try {
-    const { openid, username, password } = req.body;
-
-    // ========== 微信用户登录（优先） ==========
-    if (openid) {
-      if (!openid) {
-        return res.status(400).json({ success: false, message: 'openid 不能为空' });
-      }
-
-      // 根据 openid 查找用户
-      const user = await userModel.getByOpenId(openid);
-      if (!user) {
-        return res.status(404).json({ success: false, message: '该微信用户不存在，请先注册' });
-      }
-
-      // 检查账号状态
-      if (user.status === 'banned') {
-        return res.status(403).json({ success: false, message: '账号已被封禁' });
-      }
-
-      // 更新最后登录时间
-      await userModel.updateLastLogin(user.user_id);
-
-      // 返回用户信息（不含敏感字段）
-      return res.json({ success: true, data: formatUser(user), message: '登录成功' });
+    const realOpenid = req.openid;
+    if (!realOpenid) {
+      return res.status(400).json({ success: false, message: '无法获取微信身份' });
     }
+    const user = await userModel.getByOpenId(realOpenid);
+    if (!user) {
+      return res.status(404).json({ success: false, message: '该微信用户不存在，请先注册' });
+    }
+    if (user.status === 'banned') {
+      return res.status(403).json({ success: false, message: '账号已被封禁' });
+    }
+    await userModel.updateLastLogin(user.user_id);
+    res.json({ success: true, data: formatUser(user), message: '登录成功' });
+  } catch (err) {
+    next(err);
+  }
+};
 
-    // ========== 管理员（用户名+密码）登录 ==========
+// ==================== 管理员登录（使用用户名+密码，更新 last_login_at） ====================
+exports.adminLogin = async (req, res, next) => {
+  try {
+    const { username, password } = req.body;
     if (!username || !password) {
       return res.status(400).json({ success: false, message: '用户名和密码不能为空' });
     }
-
     const user = await userModel.getByUsername(username);
     if (!user) {
       return res.status(401).json({ success: false, message: '用户名或密码错误' });
     }
-
     const match = await bcrypt.compare(password, user.password_hash);
     if (!match) {
       return res.status(401).json({ success: false, message: '用户名或密码错误' });
     }
-
     if (user.status === 'banned') {
       return res.status(403).json({ success: false, message: '账号已被封禁' });
     }
-
     await userModel.updateLastLogin(user.user_id);
     res.json({ success: true, data: formatUser(user), message: '登录成功' });
   } catch (err) {

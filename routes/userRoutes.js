@@ -3,17 +3,14 @@ const express = require('express');
 const router = express.Router();
 const userController = require('../controllers/userController');
 const { uploadAvatar } = require('../middlewares/photoUpload');
+const wechatCodeMiddleware = require('../middlewares/wechatAuth');
 
 // ==================== 固定路径（优先级高） ====================
 
-// GET /api/users 或 /api/users?openid=xxx
-router.get('/', (req, res, next) => {
-  // 根据查询参数分发：有 openid 则查单个微信用户，否则查列表
-  if (req.query.openid) {
-    return userController.getUserByOpenId(req, res, next);
-  }
-  return userController.listUsers(req, res, next);
-});
+// GET /api/users
+router.get('/', userController.listUsers);
+
+router.post('/code', wechatCodeMiddleware, userController.getUserByCode);
 
 // GET /api/users/check-username?username=xxx
 router.get('/check-username', userController.checkUsername);
@@ -25,13 +22,16 @@ router.get('/check-email', userController.checkEmail);
 router.get('/check-openid', userController.checkOpenId);
 
 // POST /api/users/wechat
-router.post('/wechat', uploadAvatar.single('avatar'), userController.createWechatUser);
+router.post('/wechat', uploadAvatar.single('avatar'), wechatCodeMiddleware, userController.createWechatUser);
+
+// 微信用户登录
+router.post('/wechat/login', wechatCodeMiddleware, userController.wechatLogin);
+
+// 管理员登录（使用 username + password，不需要 code）
+router.post('/admin/login', userController.adminLogin);
 
 // POST /api/users/admin
 router.post('/admin', uploadAvatar.single('avatar'), userController.createAdmin);
-
-// POST /api/users/login
-router.post('/login', userController.login);
 
 // 注意：前端需使用 multipart/form-data，字段名为 "avatar"
 router.post('/:id/avatar', uploadAvatar.single('avatar'), userController.updateAvatar);
