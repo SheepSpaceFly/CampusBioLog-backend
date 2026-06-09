@@ -128,6 +128,7 @@ const formatPost = (dbPost, fullObservation) => {
         viewCount: dbPost.view_count,
         priority: dbPost.priority,
         status: dbPost.status,
+        allowComment: dbPost.allow_comment === 1,
         createdAt: dbPost.created_at,
         updatedAt: dbPost.updated_at,
     };
@@ -146,6 +147,36 @@ const formatComment = (dbComment, fullUser) => {
     };
 };
 
+const formatNotification = (dbNotif, fullUser, fullSourceUser) => {
+    if (!dbNotif) return null;
+    return {
+        notificationId: dbNotif.notification_id,
+        user: fullUser,                 
+        type: dbNotif.type,
+        sourceUser: fullSourceUser,        
+        targetId: dbNotif.target_id,    
+        content: dbNotif.content || null,
+        isRead: dbNotif.is_read === 1,
+        createdAt: dbNotif.created_at,
+    };
+};
+
+const formatAppeal = (dbAppeal, fullUser, fullReviewer) => {
+    if (!dbAppeal) return null;
+    return {
+        appealId: dbAppeal.appeal_id,
+        postId: dbAppeal.post_id,          
+        user: fullUser,                  
+        reason: dbAppeal.reason,
+        status: dbAppeal.status,
+        reviewer: fullReviewer,           
+        reviewNote: dbAppeal.review_note || null,
+        createdAt: dbAppeal.created_at,
+        reviewedAt: dbAppeal.reviewed_at || null,
+        notificationId: dbAppeal.notification_id || null, 
+    };
+};
+
 
 module.exports = {
     formatUser,
@@ -157,5 +188,7 @@ module.exports = {
     formatIdentificationRequest,
     formatUserCollection,
     formatPost,
-    formatComment
+    formatComment,
+    formatNotification,
+    formatAppeal
 };

@@ -20,6 +20,8 @@ const postRoutes = require('./routes/postRoutes');
 const commentRoutes = require('./routes/commentRoutes');
 const postLikeRoutes = require('./routes/postLikeRoutes');
 const commentLikeRoutes = require('./routes/commentLikeRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
+const appealRoutes = require('./routes/appealRoutes');
 
 app.use('/uploads', express.static('./uploads'));
 app.use('/api/users', userRoutes);
@@ -33,6 +35,8 @@ app.use('/api/posts', postRoutes);
 app.use('/api/comments', commentRoutes);
 app.use('/api/post-likes', postLikeRoutes);
 app.use('/api/comment-likes', commentLikeRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/appeals', appealRoutes);
 
 // 统一错误处理
 app.use(errorHandler);

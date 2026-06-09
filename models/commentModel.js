@@ -55,6 +55,13 @@ const softDelete = async (commentId) => {
     );
 };
 
+const banComment = async (commentId) => {
+    await pool.query(
+        "UPDATE comment SET status = 'banned' WHERE comment_id = ?",
+        [commentId]
+    );
+};
+
 /**
  * 获取某个帖子的所有可见评论（扁平列表，按创建时间升序）
  */
@@ -115,6 +122,7 @@ module.exports = {
     create,
     updateContent,
     softDelete,
+    banComment,
     getFlatCommentsByPostId,
     getCommentCountByPostId,
     listByUserId,

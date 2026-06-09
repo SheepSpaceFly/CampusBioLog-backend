@@ -13,11 +13,11 @@ const getById = async (postId) => {
 };
 
 /**
- * 检查帖子是否存在（未软删除的）
+ * 检查帖子是否存在（未软删除/封禁的）
  */
 const exists = async (postId) => {
     const [[{ cnt }]] = await pool.query(
-        'SELECT COUNT(*) as cnt FROM post WHERE post_id = ? AND status != "deleted"',
+        'SELECT COUNT(*) as cnt FROM post WHERE post_id = ? AND status NOT IN ("deleted", "banned")',
         [postId]
     );
     return cnt > 0;
@@ -25,21 +25,21 @@ const exists = async (postId) => {
 
 /**
  * 创建帖子
- * @param {Object} data - { obs_id, priority, status }
+ * @param {Object} data - { obs_id, priority, status, allow_comment }
  */
-const create = async ({ obs_id = null, priority = 0, status = 'published' }) => {
+const create = async ({ obs_id = null, priority = 0, status = 'published', allow_comment = 1 }) => {
     const [result] = await pool.query(
-        `INSERT INTO post (obs_id, priority, status)
-         VALUES (?, ?, ?)`,
-        [obs_id, priority, status]
+        `INSERT INTO post (obs_id, priority, status, allow_comment)
+         VALUES (?, ?, ?, ?)`,
+        [obs_id, priority, status, allow_comment]
     );
-    return { post_id: result.insertId, obs_id, priority, status };
+    return { post_id: result.insertId, obs_id, priority, status, allow_comment };
 };
 
 /**
  * 更新帖子（仅更新允许的字段）
  * @param {number} postId
- * @param {Object} data - 可包含 obs_id, priority, status
+ * @param {Object} data - 可包含 obs_id, priority, status, allow_comment
  */
 const update = async (postId, data) => {
     const fields = [];
@@ -55,6 +55,10 @@ const update = async (postId, data) => {
     if (data.status !== undefined) {
         fields.push('status = ?');
         values.push(data.status);
+    }
+    if (data.allow_comment !== undefined) {
+        fields.push('allow_comment = ?');
+        values.push(data.allow_comment);
     }
     if (fields.length === 0) return;
     values.push(postId);
@@ -86,19 +90,29 @@ const incrementViewCount = async (postId) => {
 
 /**
  * 获取帖子列表（分页 + 筛选）
- * @param {Object} options - page, pageSize, status, sortBy (priority, created_at), order (ASC/DESC)
+ * @param {Object} options - page, pageSize, status, priority, sortBy (priority, created_at, view_count), order
  */
-const list = async ({ page = 1, pageSize = 20, status = 'published', sortBy = 'created_at', order = 'DESC' } = {}) => {
+const list = async ({ 
+    page = 1, 
+    pageSize = 20, 
+    status, 
+    priority,
+    sortBy = 'created_at', 
+    order = 'DESC' 
+} = {}) => {
     const conditions = [];
     const values = [];
 
-    // 默认不显示已删除的帖子，除非明确要求显示
     if (status) {
         conditions.push('status = ?');
         values.push(status);
     } else {
-        // 如果未指定状态，默认只显示已发布和草稿，排除已删除
-        conditions.push("status != 'deleted'");
+        conditions.push("status NOT IN ('deleted', 'banned')");
+    }
+
+    if (priority !== undefined && priority !== null) {
+        conditions.push('priority = ?');
+        values.push(priority);
     }
 
     const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -110,7 +124,6 @@ const list = async ({ page = 1, pageSize = 20, status = 'published', sortBy = 'c
         [...values, pageSize, offset]
     );
 
-    // 查询总数
     const [[{ total }]] = await pool.query(
         `SELECT COUNT(*) as total FROM post ${whereClause}`,
         values

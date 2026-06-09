@@ -25,11 +25,11 @@ async function getFullPostById(postId) {
 /**
  * POST /api/posts
  * 创建帖子
- * 请求体: { obsId?, priority?, status? }  // status 默认为 published
+ * 请求体: { obsId?, priority?, status?, allowComment? }  // status 默认为 published，allowComment 默认为 true
  */
 exports.createPost = async (req, res, next) => {
     try {
-        const { obsId, priority, status } = req.body;
+        const { obsId, priority, status, allowComment } = req.body;
 
         // 如果提供了 obsId，需要验证观测记录是否存在
         if (obsId) {
@@ -39,10 +39,17 @@ exports.createPost = async (req, res, next) => {
             }
         }
 
+        // 处理 allowComment：前端可能传布尔值，转为 0/1
+        let allowCommentNum = 1;
+        if (allowComment !== undefined) {
+            allowCommentNum = allowComment ? 1 : 0;
+        }
+
         const newPost = await postModel.create({
             obs_id: obsId || null,
             priority: priority !== undefined ? priority : 0,
             status: status || 'published',
+            allow_comment: allowCommentNum,
         });
 
         const fullPost = await getFullPostById(newPost.post_id);
@@ -63,13 +70,11 @@ exports.getPostById = async (req, res, next) => {
             return res.status(400).json({ success: false, message: '帖子ID不合法' });
         }
 
-        // 先查询是否存在
         const exists = await postModel.exists(postId);
         if (!exists) {
             return res.status(404).json({ success: false, message: '帖子不存在或已删除' });
         }
 
-        // 增加浏览量（异步，无需等待结果）
         await postModel.incrementViewCount(postId);
 
         const fullPost = await getFullPostById(postId);
@@ -81,8 +86,7 @@ exports.getPostById = async (req, res, next) => {
 
 /**
  * PUT /api/posts/:postId
- * 更新帖子（可修改 obs_id, priority, status）
- * 注意：不允许修改 view_count、created_at、updated_at 自动维护
+ * 更新帖子（可修改 obs_id, priority, status, allow_comment）
  */
 exports.updatePost = async (req, res, next) => {
     try {
@@ -96,7 +100,7 @@ exports.updatePost = async (req, res, next) => {
             return res.status(404).json({ success: false, message: '帖子不存在或已删除' });
         }
 
-        const { obsId, priority, status } = req.body;
+        const { obsId, priority, status, allowComment } = req.body;
 
         // 如果提供了 obsId，验证观测记录是否存在
         if (obsId !== undefined && obsId !== null) {
@@ -110,6 +114,9 @@ exports.updatePost = async (req, res, next) => {
         if (obsId !== undefined) updateData.obs_id = obsId;
         if (priority !== undefined) updateData.priority = priority;
         if (status !== undefined) updateData.status = status;
+        if (allowComment !== undefined) {
+            updateData.allow_comment = allowComment ? 1 : 0;
+        }
 
         await postModel.update(postId, updateData);
         const fullPost = await getFullPostById(postId);
@@ -145,17 +152,23 @@ exports.deletePost = async (req, res, next) => {
 /**
  * GET /api/posts
  * 帖子列表（分页 + 筛选）
- * 支持 query: page, pageSize, status, sortBy, order
  */
 exports.listPosts = async (req, res, next) => {
     try {
         const page = parseInt(req.query.page) || 1;
         const pageSize = parseInt(req.query.pageSize) || 20;
-        const status = req.query.status; // 可选，如不传则自动排除已删除
+        const status = req.query.status;
         const sortBy = req.query.sortBy || 'created_at';
         const order = req.query.order || 'DESC';
+        
+        let priority = req.query.priority;
+        if (priority !== undefined && priority !== '') {
+            priority = parseInt(priority);
+            if (isNaN(priority)) priority = undefined;
+        } else {
+            priority = undefined;
+        }
 
-        // 允许的排序字段
         const allowedSortFields = ['created_at', 'updated_at', 'priority', 'view_count'];
         const finalSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'created_at';
 
@@ -163,11 +176,11 @@ exports.listPosts = async (req, res, next) => {
             page,
             pageSize,
             status,
+            priority,   
             sortBy: finalSortBy,
             order,
         });
 
-        // 将每个帖子组装完整对象
         const fullList = [];
         for (const post of result.list) {
             const fullPost = await getFullPostById(post.post_id);
@@ -190,7 +203,7 @@ exports.listPosts = async (req, res, next) => {
 
 /**
  * GET /api/posts/by-obs/:obsId
- * 根据观测记录ID获取关联的帖子（通常一个观测对应一个帖子，返回数组）
+ * 根据观测记录ID获取关联的帖子
  */
 exports.getPostsByObsId = async (req, res, next) => {
     try {
