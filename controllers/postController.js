@@ -12,7 +12,7 @@ async function getFullObservationById(obsId) {
     return formatObservation(obsRow, photos);
 }
 
-// ========== 辅助函数：组装完整帖子对象（替换 obs 为完整对象） ==========
+// ========== 辅助函数：组装完整帖子对象 ==========
 async function getFullPostById(postId) {
     const post = await postModel.getById(postId);
     if (!post) return null;
@@ -22,16 +22,10 @@ async function getFullPostById(postId) {
 
 // ==================== 控制器方法 ====================
 
-/**
- * POST /api/posts
- * 创建帖子
- * 请求体: { obsId?, priority?, status?, allowComment? }  // status 默认为 published，allowComment 默认为 true
- */
 exports.createPost = async (req, res, next) => {
     try {
         const { obsId, priority, status, allowComment } = req.body;
 
-        // 如果提供了 obsId，需要验证观测记录是否存在
         if (obsId) {
             const obs = await observationModel.getById(obsId);
             if (!obs) {
@@ -39,7 +33,6 @@ exports.createPost = async (req, res, next) => {
             }
         }
 
-        // 处理 allowComment：前端可能传布尔值，转为 0/1
         let allowCommentNum = 1;
         if (allowComment !== undefined) {
             allowCommentNum = allowComment ? 1 : 0;
@@ -59,10 +52,6 @@ exports.createPost = async (req, res, next) => {
     }
 };
 
-/**
- * GET /api/posts/:postId
- * 获取单个帖子（自动增加浏览量）
- */
 exports.getPostById = async (req, res, next) => {
     try {
         const postId = parseInt(req.params.postId);
@@ -70,9 +59,9 @@ exports.getPostById = async (req, res, next) => {
             return res.status(400).json({ success: false, message: '帖子ID不合法' });
         }
 
-        const exists = await postModel.exists(postId);
-        if (!exists) {
-            return res.status(404).json({ success: false, message: '帖子不存在或已删除' });
+        const post = await postModel.getById(postId);
+        if (!post) {
+            return res.status(404).json({ success: false, message: '帖子不存在' });
         }
 
         await postModel.incrementViewCount(postId);
@@ -84,10 +73,6 @@ exports.getPostById = async (req, res, next) => {
     }
 };
 
-/**
- * PUT /api/posts/:postId
- * 更新帖子（可修改 obs_id, priority, status, allow_comment）
- */
 exports.updatePost = async (req, res, next) => {
     try {
         const postId = parseInt(req.params.postId);
@@ -97,12 +82,11 @@ exports.updatePost = async (req, res, next) => {
 
         const exists = await postModel.exists(postId);
         if (!exists) {
-            return res.status(404).json({ success: false, message: '帖子不存在或已删除' });
+            return res.status(404).json({ success: false, message: '帖子不存在' });
         }
 
         const { obsId, priority, status, allowComment } = req.body;
 
-        // 如果提供了 obsId，验证观测记录是否存在
         if (obsId !== undefined && obsId !== null) {
             const obs = await observationModel.getById(obsId);
             if (!obs) {
@@ -126,10 +110,6 @@ exports.updatePost = async (req, res, next) => {
     }
 };
 
-/**
- * DELETE /api/posts/:postId
- * 软删除帖子（将 status 改为 'deleted'）
- */
 exports.deletePost = async (req, res, next) => {
     try {
         const postId = parseInt(req.params.postId);
@@ -139,7 +119,7 @@ exports.deletePost = async (req, res, next) => {
 
         const exists = await postModel.exists(postId);
         if (!exists) {
-            return res.status(404).json({ success: false, message: '帖子不存在或已删除' });
+            return res.status(404).json({ success: false, message: '帖子不存在' });
         }
 
         await postModel.softDelete(postId);
@@ -149,15 +129,11 @@ exports.deletePost = async (req, res, next) => {
     }
 };
 
-/**
- * GET /api/posts
- * 帖子列表（分页 + 筛选）
- */
 exports.listPosts = async (req, res, next) => {
     try {
         const page = parseInt(req.query.page) || 1;
         const pageSize = parseInt(req.query.pageSize) || 20;
-        const status = req.query.status;
+        const status = req.query.status;          // 可传 'draft','published','deleted','banned'，不传则默认排除 deleted,banned
         const sortBy = req.query.sortBy || 'created_at';
         const order = req.query.order || 'DESC';
         
@@ -175,8 +151,8 @@ exports.listPosts = async (req, res, next) => {
         const result = await postModel.list({
             page,
             pageSize,
-            status,
-            priority,   
+            status,          // 直接传给 model，model 会根据是否传值决定查询逻辑
+            priority,
             sortBy: finalSortBy,
             order,
         });
@@ -201,17 +177,14 @@ exports.listPosts = async (req, res, next) => {
     }
 };
 
-/**
- * GET /api/posts/by-obs/:obsId
- * 根据观测记录ID获取关联的帖子
- */
 exports.getPostsByObsId = async (req, res, next) => {
     try {
         const obsId = parseInt(req.params.obsId);
         if (isNaN(obsId)) {
             return res.status(400).json({ success: false, message: '观测记录ID不合法' });
         }
-        const posts = await postModel.getByObsId(obsId);
+        const statusFilter = req.query.status || null;   // 可选
+        const posts = await postModel.getByObsId(obsId, statusFilter);
         const fullList = [];
         for (const post of posts) {
             const fullPost = await getFullPostById(post.post_id);
