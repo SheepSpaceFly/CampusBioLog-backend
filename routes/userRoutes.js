@@ -3,7 +3,7 @@ const express = require('express');
 const router = express.Router();
 const userController = require('../controllers/userController');
 const { uploadAvatar } = require('../middlewares/photoUpload');
-const wechatCodeMiddleware = require('../middlewares/wechatAuth');
+const { wechatCodeMiddleware } = require('../middlewares/wechatAuth');
 
 // ==================== 固定路径（优先级高） ====================
 

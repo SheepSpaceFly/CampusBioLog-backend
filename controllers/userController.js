@@ -298,11 +298,30 @@ exports.checkEmail = async (req, res, next) => {
 
 exports.checkOpenId = async (req, res, next) => {
   try {
-    const { openid } = req.query;
-    if (!openid) return res.status(400).json({ success: false, message: '缺少 openid' });
-    const exists = await userModel.isOpenIdExists(openid);
-    res.json({ success: true, data: { openid, available: !exists } });
-  } catch (err) { next(err); }
+    const { code } = req.query; // 从 query 中获取 code（也支持从 body 读取，但保持 GET 风格）
+    if (!code) {
+      return res.status(400).json({ success: false, message: '缺少 code 参数' });
+    }
+
+    // 通过 code 换取真实 openid
+    const realOpenid = await getOpenidByCode(code);
+    const exists = await userModel.isOpenIdExists(realOpenid);
+    res.json({
+      success: true,
+      data: {    
+        available: !exists,
+      },
+    });
+  } catch (err) {
+    if (err.errcode === 40029) {
+      return res.status(400).json({ success: false, message: 'code 无效或已过期' });
+    }
+    if (err.errcode === 45011) {
+      return res.status(429).json({ success: false, message: '调用频率过高，请稍后重试' });
+    }
+    console.error('checkOpenId 失败:', err);
+    res.status(500).json({ success: false, message: err.message || '服务器内部错误' });
+  }
 };
 
 // ==================== 微信用户登录（使用 code ） ====================
